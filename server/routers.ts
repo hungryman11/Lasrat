@@ -4,12 +4,23 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { createComplaint, getComplaintById, listAssignableStaff, listComplaints, updateComplaint } from "./db";
+import { createComplaint, createComplaintAttachment, getComplaintById, listAssignableStaff, listComplaintAttachments, listComplaints, updateComplaint } from "./db";
+import { storagePut } from "./storage";
 
 const categorySchema = z.enum(["service_quality", "access", "safety", "billing", "other"]);
 const prioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 const statusSchema = z.enum(["new", "in_review", "assigned", "awaiting_response", "resolved", "closed"]);
 const assignmentSchema = z.union([z.literal("all"), z.literal("unassigned"), z.literal("assigned")]);
+const attachmentMimeTypes = new Set([
+  "image/jpeg", "image/png", "image/webp", "image/gif",
+  "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+]);
+const attachmentSchema = z.object({
+  fileName: z.string().trim().min(1).max(180),
+  contentType: z.string().trim().max(120),
+  data: z.string().min(1).max(11_200_000),
+});
 
 function requireStaff(user: { role: "user" | "staff" | "admin" }) {
   if (user.role !== "staff" && user.role !== "admin") {
@@ -34,8 +45,18 @@ export const appRouter = router({
         priority: prioritySchema,
         subject: z.string().trim().min(5).max(160),
         description: z.string().trim().min(20).max(5000),
+        attachments: z.array(attachmentSchema).max(3).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        for (const attachment of input.attachments ?? []) {
+          if (!attachmentMimeTypes.has(attachment.contentType)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "One or more attachment types are not supported." });
+          }
+          const sizeBytes = Buffer.byteLength(attachment.data, "base64");
+          if (sizeBytes > 8 * 1024 * 1024) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Each attachment must be 8 MB or smaller." });
+          }
+        }
         const created = await createComplaint({
           reference: `LEHME-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
           submittedByUserId: ctx.user.id,
@@ -46,6 +67,20 @@ export const appRouter = router({
           status: "new",
         });
         if (!created) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Complaint was not created." });
+        for (const attachment of input.attachments ?? []) {
+          const safeFileName = attachment.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const sizeBytes = Buffer.byteLength(attachment.data, "base64");
+          const stored = await storagePut(`complaints/${created.id}/${crypto.randomUUID()}-${safeFileName}`, Buffer.from(attachment.data, "base64"), attachment.contentType);
+          await createComplaintAttachment({
+            complaintId: created.id,
+            uploadedByUserId: ctx.user.id,
+            fileName: attachment.fileName,
+            contentType: attachment.contentType,
+            sizeBytes,
+            storageKey: stored.key,
+            storageUrl: stored.url,
+          });
+        }
         return created;
       }),
     mine: protectedProcedure.query(({ ctx }) => listComplaints({ submittedByUserId: ctx.user.id })),
@@ -69,7 +104,7 @@ export const appRouter = router({
         if (!isStaff && complaint.submittedByUserId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own complaints." });
         }
-        return complaint;
+        return { ...complaint, attachments: await listComplaintAttachments(input.id) };
       }),
     staffDirectory: protectedProcedure.query(({ ctx }) => {
       requireStaff(ctx.user);

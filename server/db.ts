@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/mysql-core";
 import { drizzle } from "drizzle-orm/mysql2";
-import { Complaint, complaints, InsertComplaint, InsertUser, users } from "../drizzle/schema";
+import { complaintAttachments, Complaint, complaints, InsertComplaint, InsertComplaintAttachment, InsertUser, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -143,6 +143,28 @@ export async function updateComplaint(id: number, updates: Partial<Pick<Complain
   if (!db) throw new Error("Database is not configured");
   await db.update(complaints).set(updates).where(eq(complaints.id, id));
   return getComplaintById(id);
+}
+
+export async function createComplaintAttachment(input: InsertComplaintAttachment) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not configured");
+  const result = await db.insert(complaintAttachments).values(input);
+  const id = Number(result[0].insertId);
+  const rows = await db.select().from(complaintAttachments).where(eq(complaintAttachments.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function listComplaintAttachments(complaintId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not configured");
+  return db.select({
+    id: complaintAttachments.id,
+    fileName: complaintAttachments.fileName,
+    contentType: complaintAttachments.contentType,
+    sizeBytes: complaintAttachments.sizeBytes,
+    storageUrl: complaintAttachments.storageUrl,
+    createdAt: complaintAttachments.createdAt,
+  }).from(complaintAttachments).where(eq(complaintAttachments.complaintId, complaintId)).orderBy(asc(complaintAttachments.createdAt));
 }
 
 export async function listAssignableStaff() {

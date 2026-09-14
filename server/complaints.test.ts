@@ -35,4 +35,15 @@ describe("complaint authorization", () => {
       description: "Not enough",
     })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
+
+  it("rejects unsupported attachment types before storage is called", async () => {
+    const caller = appRouter.createCaller(createContext("user"));
+    await expect(caller.complaints.create({
+      category: "other",
+      priority: "medium",
+      subject: "Complaint with an attachment",
+      description: "This complaint has enough detail for validation to continue.",
+      attachments: [{ fileName: "malware.exe", contentType: "application/x-msdownload", data: "ZmFrZQ==" }],
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
 });

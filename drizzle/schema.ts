@@ -27,6 +27,18 @@ export const complaints = mysqlTable("complaints", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const complaintAttachments = mysqlTable("complaintAttachments", {
+  id: int("id").autoincrement().primaryKey(),
+  complaintId: int("complaintId").notNull(),
+  uploadedByUserId: int("uploadedByUserId").notNull(),
+  fileName: varchar("fileName", { length: 180 }).notNull(),
+  contentType: varchar("contentType", { length: 120 }).notNull(),
+  sizeBytes: int("sizeBytes").notNull(),
+  storageKey: varchar("storageKey", { length: 512 }).notNull().unique(),
+  storageUrl: varchar("storageUrl", { length: 600 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Complaint = typeof complaints.$inferSelect;
@@ -34,3 +46,5 @@ export type InsertComplaint = typeof complaints.$inferInsert;
 export type ComplaintCategory = Complaint["category"];
 export type ComplaintPriority = Complaint["priority"];
 export type ComplaintStatus = Complaint["status"];
+export type ComplaintAttachment = typeof complaintAttachments.$inferSelect;
+export type InsertComplaintAttachment = typeof complaintAttachments.$inferInsert;
